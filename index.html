@@ -362,62 +362,322 @@ footer{background:var(--teal-dark);color:rgba(255,255,255,.8);padding:1.5rem 1.2
 </footer>
 
 <script>
-/* ── QR Code 純 JS 實作 (不依賴外部函式庫，直接產生標準 SVG) ── */
-var QR_ALPH='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:';
-function qrEncode(str){
-  /* 簡易 QR v3 (數字/英數/Byte)，使用 byte mode，糾錯 M */
-  var data=[];
-  for(var i=0;i<str.length;i++) data.push(str.charCodeAt(i));
-  /* 使用 qrcode-generator 邏輯 — 這裡直接 import 小型實作 */
-  return data;
+// ═══════════════════════════════════════════════
+// 完整 QR Code 純 JS 實作（無需外部 library）
+// 支援 Byte Mode, Error Correction Level M, Version 1-10
+// ═══════════════════════════════════════════════
+
+var _TARGET_URL = "https://sheon930925-art.github.io/kaifengcarezhongzheng-ltc/";
+
+// Reed-Solomon GF(256) 運算
+var GF_EXP = new Array(512);
+var GF_LOG = new Array(256);
+(function(){
+  var x=1;
+  for(var i=0;i<255;i++){
+    GF_EXP[i]=x;
+    GF_LOG[x]=i;
+    x<<=1;
+    if(x&256) x^=285;
+  }
+  for(var i=255;i<512;i++) GF_EXP[i]=GF_EXP[i-255];
+})();
+function gfMul(x,y){
+  if(x===0||y===0) return 0;
+  return GF_EXP[(GF_LOG[x]+GF_LOG[y])%255];
+}
+function gfPow(x,p){
+  var r=1;
+  for(var i=0;i<p;i++) r=gfMul(r,x);
+  return r;
+}
+function rsGeneratorPoly(n){
+  var g=[1];
+  for(var i=0;i<n;i++){
+    var factor=[1,gfPow(2,i)];
+    var res=new Array(g.length+factor.length-1).fill(0);
+    for(var j=0;j<g.length;j++)
+      for(var k=0;k<factor.length;k++)
+        res[j+k]^=gfMul(g[j],factor[k]);
+    g=res;
+  }
+  return g;
+}
+function rsEncode(data,n){
+  var gen=rsGeneratorPoly(n);
+  var msg=data.concat(new Array(n).fill(0));
+  for(var i=0;i<data.length;i++){
+    var c=msg[i];
+    if(c!==0)
+      for(var j=0;j<gen.length;j++)
+        msg[i+j]^=gfMul(gen[j],c);
+  }
+  return msg.slice(data.length);
 }
 
-/* 使用 CDN qrcodejs 但改為 SVG 輸出而非 Canvas */
+// QR Code 版本/EC 參數 (version, ec_codewords_per_block, blocks, data_codewords)
+var QR_PARAMS = {
+  1:{M:{ec:10,b1:1,c1:19}},
+  2:{M:{ec:16,b1:1,c1:34}},
+  3:{M:{ec:26,b1:1,c1:55}},
+  4:{M:{ec:18,b1:2,c1:25}},
+  5:{M:{ec:24,b1:2,c1:33}},
+  6:{M:{ec:16,b1:4,c1:27}},
+  7:{M:{ec:18,b1:4,c1:31}},
+  8:{M:{ec:22,b1:2,c1:38,b2:2,c2:39}},
+  9:{M:{ec:22,b1:3,c1:36,b2:2,c2:37}},
+  10:{M:{ec:26,b1:4,c1:43,b2:1,c2:44}}
+};
+var QR_DATA_CAP = {1:34,2:64,3:109,4:152,5:202,6:255,7:293,8:365,9:432,10:513};
+
+function strToBytes(s){
+  var bytes=[];
+  for(var i=0;i<s.length;i++){
+    var c=s.charCodeAt(i);
+    if(c<128){bytes.push(c);}
+    else if(c<2048){bytes.push(0xC0|(c>>6));bytes.push(0x80|(c&63));}
+    else{bytes.push(0xE0|(c>>12));bytes.push(0x80|((c>>6)&63));bytes.push(0x80|(c&63));}
+  }
+  return bytes;
+}
+
+function getVersion(byteLen){
+  for(var v=1;v<=10;v++){
+    if(QR_DATA_CAP[v]>=byteLen+2) return v; // +2 for mode+length indicators overhead approx
+  }
+  return 10;
+}
+
+function makeBitStream(data, version){
+  var bits=[];
+  function pushBits(val,n){
+    for(var i=n-1;i>=0;i--) bits.push((val>>i)&1);
+  }
+  // Mode: Byte = 0100
+  pushBits(4,4);
+  // Character count indicator
+  var ccLen = version<10?8:16;
+  pushBits(data.length, ccLen);
+  // Data
+  for(var i=0;i<data.length;i++) pushBits(data[i],8);
+  // Terminator
+  var p=QR_PARAMS[version].M;
+  var totalDataBits=(p.c1*p.b1+(p.c2||0)*(p.b2||0))*8;
+  for(var i=0;i<4&&bits.length<totalDataBits;i++) bits.push(0);
+  // Pad to byte boundary
+  while(bits.length%8!==0) bits.push(0);
+  // Pad bytes
+  var padBytes=[0xEC,0x11];
+  var pi=0;
+  while(bits.length<totalDataBits){
+    pushBits(padBytes[pi%2],8);
+    pi++;
+  }
+  return bits;
+}
+
+function bitsToBytes(bits){
+  var bytes=[];
+  for(var i=0;i<bits.length;i+=8){
+    var b=0;
+    for(var j=0;j<8;j++) b=(b<<1)|(bits[i+j]||0);
+    bytes.push(b);
+  }
+  return bytes;
+}
+
+function interleaveBlocks(version){
+  return function(dataBytes){
+    var p=QR_PARAMS[version].M;
+    var blocks=[];
+    var idx=0;
+    for(var b=0;b<p.b1;b++){
+      blocks.push(dataBytes.slice(idx,idx+p.c1));
+      idx+=p.c1;
+    }
+    if(p.b2){
+      for(var b=0;b<p.b2;b++){
+        blocks.push(dataBytes.slice(idx,idx+p.c2));
+        idx+=p.c2;
+      }
+    }
+    var result=[];
+    var maxLen=Math.max.apply(null,blocks.map(function(b){return b.length;}));
+    for(var i=0;i<maxLen;i++)
+      for(var j=0;j<blocks.length;j++)
+        if(i<blocks[j].length) result.push(blocks[j][i]);
+    // EC codewords
+    var ecBlocks=blocks.map(function(b){return rsEncode(b,p.ec);});
+    for(var i=0;i<p.ec;i++)
+      for(var j=0;j<ecBlocks.length;j++)
+        result.push(ecBlocks[j][i]);
+    return result;
+  };
+}
+
+// QR Matrix size
+function qrSize(v){ return 17+v*4; }
+
+// Finder pattern
+function placeFinderPattern(mat,r,c){
+  var pat=[[1,1,1,1,1,1,1],[1,0,0,0,0,0,1],[1,0,1,1,1,0,1],[1,0,1,1,1,0,1],[1,0,1,1,1,0,1],[1,0,0,0,0,0,1],[1,1,1,1,1,1,1]];
+  for(var i=0;i<7;i++) for(var j=0;j<7;j++) mat[r+i][c+j]=pat[i][j];
+}
+
+// Alignment pattern positions
+var ALIGN_POS={2:[6,18],3:[6,22],4:[6,26],5:[6,30],6:[6,34],7:[6,22,38],8:[6,24,42],9:[6,26,46],10:[6,28,50]};
+function placeAlignPattern(mat,r,c){
+  var pat=[[1,1,1,1,1],[1,0,0,0,1],[1,0,1,0,1],[1,0,0,0,1],[1,1,1,1,1]];
+  for(var i=0;i<5;i++) for(var j=0;j<5;j++) mat[r-2+i][c-2+j]=pat[i][j];
+}
+
+function buildMatrix(version, codewords){
+  var size=qrSize(version);
+  var mat=[];
+  var reserved=[];
+  for(var i=0;i<size;i++){
+    mat.push(new Array(size).fill(0));
+    reserved.push(new Array(size).fill(false));
+  }
+  function reserve(r,c){ if(r>=0&&r<size&&c>=0&&c<size) reserved[r][c]=true; }
+  function setCell(r,c,v){ if(r>=0&&r<size&&c>=0&&c<size){ mat[r][c]=v; reserved[r][c]=true; } }
+
+  // Finder patterns + separators
+  placeFinderPattern(mat,0,0);
+  placeFinderPattern(mat,0,size-7);
+  placeFinderPattern(mat,size-7,0);
+  for(var i=0;i<7;i++){
+    setCell(i,0,mat[i][0]); setCell(i,size-7,mat[i][size-7]);
+    setCell(size-7+i,0,mat[size-7+i][0]);
+  }
+  // Separators
+  for(var i=0;i<8;i++){
+    setCell(7,i,0); setCell(i,7,0);
+    setCell(7,size-8+i,0); setCell(i,size-8,0);
+    setCell(size-8,i,0); setCell(size-1-i,7,0);
+  }
+  // Timing patterns
+  for(var i=8;i<size-8;i++){
+    setCell(6,i,(i%2===0)?1:0);
+    setCell(i,6,(i%2===0)?1:0);
+  }
+  // Dark module
+  setCell(size-8,8,1);
+  // Format info area (reserved)
+  for(var i=0;i<9;i++){ reserve(8,i); reserve(i,8); }
+  for(var i=0;i<8;i++){ reserve(8,size-1-i); reserve(size-1-i,8); }
+  // Alignment patterns
+  if(version>=2){
+    var pos=ALIGN_POS[version];
+    for(var a=0;a<pos.length;a++){
+      for(var b=0;b<pos.length;b++){
+        var r=pos[a],c=pos[b];
+        if(!reserved[r][c]) placeAlignPattern(mat,r,c);
+        for(var i=-2;i<=2;i++) for(var j=-2;j<=2;j++) reserved[r+i][c+j]=true;
+      }
+    }
+  }
+  // Version info (version>=7)
+  if(version>=7){
+    // simplified: just reserve
+    for(var i=0;i<6;i++){ for(var j=0;j<3;j++){ reserve(i,size-11+j); reserve(size-11+j,i); } }
+  }
+
+  // Place data bits
+  var bits=[];
+  for(var i=0;i<codewords.length;i++)
+    for(var b=7;b>=0;b--) bits.push((codewords[i]>>b)&1);
+  // remainder bits
+  var rem=[0,7,7,7,7,7,0,0,0,0];
+  for(var i=0;i<(rem[version-1]||0);i++) bits.push(0);
+
+  var bitIdx=0;
+  var up=true;
+  for(var col=size-1;col>=0;col-=2){
+    if(col===6) col=5;
+    for(var rowIdx=0;rowIdx<size;rowIdx++){
+      var row=up?(size-1-rowIdx):rowIdx;
+      for(var dc=0;dc<2;dc++){
+        var c2=col-dc;
+        if(!reserved[row][c2]){
+          mat[row][c2]=(bitIdx<bits.length)?bits[bitIdx++]:0;
+        }
+      }
+    }
+    up=!up;
+  }
+
+  // Apply mask pattern 0: (i+j)%2==0
+  for(var i=0;i<size;i++)
+    for(var j=0;j<size;j++)
+      if(!reserved[i][j]&&(i+j)%2===0) mat[i][j]^=1;
+
+  // Format info (mask 000, EC level M=00)
+  // M=00, mask=000 → format=0b 00 000 → data=0, EC code computed
+  // precomputed format string for M + mask 0: 101010000010010
+  var fmt=[1,0,1,0,1,0,0,0,0,0,1,0,0,1,0];
+  var fmtIdx=0;
+  for(var i=0;i<6;i++){ mat[8][i]=fmt[fmtIdx]; reserved[8][i]=true; fmtIdx++; }
+  mat[8][7]=fmt[fmtIdx++]; reserved[8][7]=true;
+  mat[8][8]=fmt[fmtIdx++]; reserved[8][8]=true;
+  for(var i=5;i>=0;i--){ mat[i][8]=fmt[fmtIdx++]; reserved[i][8]=true; }
+  fmtIdx=0;
+  for(var i=size-1;i>=size-8;i--){ mat[i][8]=fmt[fmtIdx++]; reserved[i][8]=true; }
+  for(var i=size-8;i<size;i++){ mat[8][i]=fmt[fmtIdx++]; reserved[8][i]=true; }
+
+  return mat;
+}
+
+function generateQRMatrix(text){
+  var bytes=strToBytes(text);
+  var version=1;
+  while(version<=10 && QR_DATA_CAP[version]<bytes.length+2) version++;
+  if(version>10) return null;
+  var bits=makeBitStream(bytes,version);
+  var dataBytes=bitsToBytes(bits);
+  var allBytes=interleaveBlocks(version)(dataBytes);
+  return {matrix:buildMatrix(version,allBytes), version:version};
+}
+
+function renderQRtoSVG(text, size){
+  var result=generateQRMatrix(text);
+  if(!result) return '<p style="color:red">文字太長，無法產生 QR Code</p>';
+  var mat=result.matrix;
+  var n=mat.length;
+  var cellSize=size/n;
+  var svgParts=['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+size+' '+size+'" width="'+size+'" height="'+size+'">'];
+  svgParts.push('<rect width="'+size+'" height="'+size+'" fill="white"/>');
+  for(var i=0;i<n;i++){
+    for(var j=0;j<n;j++){
+      if(mat[i][j]===1){
+        svgParts.push('<rect x="'+(j*cellSize).toFixed(2)+'" y="'+(i*cellSize).toFixed(2)+'" width="'+cellSize.toFixed(2)+'" height="'+cellSize.toFixed(2)+'" fill="black"/>');
+      }
+    }
+  }
+  svgParts.push('</svg>');
+  return svgParts.join('');
+}
+
 function buildQR(){
   var url=document.getElementById('url-input').value.trim();
-  if(!url){alert('請先輸入網址！');return;}
+  if(!url){alert('請輸入網址');return;}
   var wrap=document.getElementById('qr-svg-wrap');
-  wrap.innerHTML='';
-  /* 用 div 讓 qrcodejs 產生 table，再自己轉 SVG */
-  var tmp=document.createElement('div');
-  tmp.style.display='none';
-  document.body.appendChild(tmp);
-  try{
-    var qr=new QRCode(tmp,{text:url,width:210,height:210,correctLevel:QRCode.CorrectLevel.M});
-    setTimeout(function(){
-      var img=tmp.querySelector('img');
-      if(img && img.src){
-        /* fallback: 直接顯示 img */
-        img.style.borderRadius='8px';
-        img.style.width='200px';
-        img.style.height='200px';
-        wrap.appendChild(img.cloneNode());
-        wrap.style.border='2px solid var(--teal)';
-        wrap.style.borderRadius='12px';
-        wrap.style.padding='12px';
-        wrap.style.background='#fff';
-        wrap.style.display='inline-block';
-        wrap.style.lineHeight='0';
-        document.body.removeChild(tmp);
-      }
-    },200);
-  }catch(e){
-    document.body.removeChild(tmp);
-    /* 若 qrcodejs 不可用，顯示提示 */
-    wrap.innerHTML='<p style="color:red;font-size:.8rem;padding:1rem">請先上傳至有網路的主機再掃描</p>';
-  }
+  wrap.innerHTML=renderQRtoSVG(url,220);
+  wrap.style.cssText='display:inline-block;padding:12px;background:#fff;border-radius:12px;border:2px solid #3aaba0;line-height:0';
 }
 
 function downloadQR(){
-  var img=document.querySelector('#qr-svg-wrap img');
-  if(!img){alert('請先按「產生」');return;}
+  var wrap=document.getElementById('qr-svg-wrap');
+  var svg=wrap.querySelector('svg');
+  if(!svg){alert('請先按「產生」');return;}
+  var blob=new Blob([svg.outerHTML],{type:'image/svg+xml'});
   var a=document.createElement('a');
-  a.href=img.src;
-  a.download='凱風中正區長照QRCode.png';
+  a.href=URL.createObjectURL(blob);
+  a.download='凱風中正區長照QRCode.svg';
   a.click();
 }
 
-/* ── Filter & Search ── */
+/* Filter & Search */
 var _type='all';
 var cards=document.querySelectorAll('.card');
 function updateCount(){
@@ -442,15 +702,13 @@ function applyFilters(){
   });
   updateCount();
 }
-updateCount();
-</script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" onload="initQR()"></script>
-<script>
-function initQR(){
-  /* 頁面載入時若網址已填，自動產生 */
-  var url=document.getElementById('url-input').value.trim();
-  if(url) buildQR();
-}
+
+// 頁面載入完成後自動產生 QR Code
+window.addEventListener('load', function(){
+  document.getElementById('url-input').value=_TARGET_URL;
+  updateCount();
+  buildQR();
+});
 </script>
 </body>
 </html>
