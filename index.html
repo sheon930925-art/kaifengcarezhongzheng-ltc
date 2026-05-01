@@ -908,28 +908,37 @@ footer{background:var(--dk);color:rgba(255,255,255,.8);padding:1rem;text-align:c
       </ol>
       <details style="margin-top:.6rem">
         <summary style="font-size:.72rem;color:var(--dk);cursor:pointer;font-weight:700">▶ 展開 Apps Script 程式碼（複製貼上用）</summary>
-        <pre>// 凱風長照資源地圖 - Google Apps Script
+        <pre>// ═══════════════════════════════════════════════
+// 凱風長照資源地圖 - Google Apps Script
+// 試算表：線上試算表即時更新凱風＿中正區正式非正式資源盤點
+// ═══════════════════════════════════════════════
 // 設定步驟：
-// 1. 開啟試算表 → 擴充功能 → Apps Script
-// 2. 貼上此程式碼 → 儲存（磁碟片圖示）
-// 3. 點「部署」→「新增部署作業」
-// 4. 類型：網頁應用程式
-// 5. 執行身分：我（你的帳號）
-// 6. 存取權：任何人
-// 7. 按「部署」→ 授權 → 複製網址
+// 1. 開啟試算表 → 點上方「擴充功能」→「Apps Script」
+// 2. 把畫面上原有程式碼全部刪除
+// 3. 貼上以下程式碼 → 按上方磁碟片圖示儲存
+// 4. 點「部署」→「新增部署作業」
+// 5. 類型：網頁應用程式
+//    執行身分：我（你的 Gmail）
+//    存取權：任何人
+// 6. 按「部署」→ Google 要求授權 → 允許
+// 7. 複製「網頁應用程式網址」→ 傳給凱風 IT 或 Claude
 
-const SPREADSHEET_ID = '1f6Mzj9RJ6Xt5MJO6YAjDYyKyuamzMOso';
+const SHEET_ID = '1-NrPQ3YF3vh_pSxnPx6-ArFXoQJGDob_3GUO-p-8-xY';
 
 function doGet(e) {
   try {
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const ss = SpreadsheetApp.openById(SHEET_ID);
     const result = {};
     ss.getSheets().forEach(sheet =&gt; {
-      result[sheet.getName()] = sheet.getDataRange().getValues();
+      const name = sheet.getName();
+      const data = sheet.getDataRange().getValues();
+      result[name] = data;
     });
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: true, data: result }))
-      .setMimeType(ContentService.MimeType.JSON);
+    const output = ContentService.createTextOutput(
+      JSON.stringify({ success: true, data: result, updated: new Date().toISOString() })
+    );
+    output.setMimeType(ContentService.MimeType.JSON);
+    return output;
   } catch(err) {
     return ContentService
       .createTextOutput(JSON.stringify({ success: false, error: err.message }))
