@@ -47,7 +47,7 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--tx);
 .st.on .tc{background:rgba(255,255,255,.25)}
 .wrap{padding:.6rem 1rem 2rem;max-width:800px;margin:0 auto}
 .notice{background:#fffbf0;border-left:3px solid var(--amb);border-radius:0 8px 8px 0;padding:.45rem .8rem;font-size:.7rem;color:#7a5300;margin-bottom:.55rem}
-.tsec{display:none}.tsec.on{display:block}
+.tsec{display:none}
 .th{display:flex;align-items:center;gap:7px;font-size:.8rem;font-weight:700;padding:.4rem .7rem;border-radius:8px;margin:1rem 0 .4rem;background:var(--wh)}
 .cnt{font-size:.65rem;font-weight:400;opacity:.6;margin-left:auto}
 .card{background:var(--wh);border:1px solid var(--bd);border-radius:10px;padding:.75rem .85rem;margin-bottom:6px;display:flex;gap:8px;align-items:flex-start;transition:box-shadow .15s}
@@ -115,6 +115,10 @@ footer{background:var(--dk);color:rgba(255,255,255,.8);padding:1rem;text-align:c
 .flk{display:flex;flex-wrap:wrap;justify-content:center;gap:.3rem .85rem;margin:.55rem 0;font-size:.7rem}
 .flk a{color:rgba(255,255,255,.75);text-decoration:none}
 .fc{font-size:.62rem;opacity:.5;margin-top:.45rem}
+
+/* all_wrap 控制：正式預設顯示，非正式預設隱藏 */
+#f_all_wrap { display: block; }
+#i_all_wrap { display: none; }
 </style>
 </head>
 <body>
@@ -878,7 +882,7 @@ footer{background:var(--dk);color:rgba(255,255,255,.8);padding:1rem;text-align:c
       <button class="mfbtn" onclick="mapFilter('小作所',this)">🛠️ 小作所</button>
     </div>
     <div class="mwrap">
-      <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d14460!2d121.516!3d25.027!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3442a9720b0f8b11%3A0x1a02e04c5069af2a!2z5Y-w5YyX5biC5Lit5q2j5D!5e0!3m2!1szh-TW!2stw!4v1700000000" allowfullscreen loading="lazy"></iframe>
+      <iframe id="map-iframe" src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d14460!2d121.516!3d25.027!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3442a9720b0f8b11%3A0x1a02e04c5069af2a!2z5Y-w5YyX5biC5Lit5q2j5D!5e0!3m2!1szh-TW!2stw!4v1700000000" allowfullscreen loading="lazy"></iframe>
     </div>
     <p style="font-size:.72rem;color:var(--mu);margin-bottom:.6rem">📍 點擊任一據點連結可在 Google Maps 開啟導航・按分類篩選上方地點列表</p>
     <div class="mlist" id="mlist"></div>
@@ -970,53 +974,39 @@ function show(id,btn){
   var s=id[0]==='f'?'f':'i';
   document.querySelectorAll('#sub-'+s+' .st').forEach(b=>b.classList.remove('on'));
   btn.classList.add('on');
-  document.querySelectorAll('#p-'+s+' .tsec').forEach(x=>x.classList.remove('on'));
+  var aw=document.getElementById(s+'_all_wrap');
+  // 隱藏所有 solo
+  document.querySelectorAll('#p-'+s+' .tsec').forEach(x=>x.style.display='none');
   if(id===s+'_all'){
-    document.querySelectorAll('#p-'+s+' [id$="_all_grp"]').forEach(x=>x.style.display='block');
-    document.getElementById(s+'_all_wrap').style.display='block';
+    aw.style.display='block';
   } else {
-    document.querySelectorAll('#p-'+s+' [id$="_all_grp"]').forEach(x=>x.style.display='none');
-    document.getElementById(s+'_all_wrap').style.display='none';
+    aw.style.display='none';
     var solo=document.getElementById(id+'_solo');
-    if(solo)solo.classList.add('on');
+    if(solo)solo.style.display='block';
   }
   qs(s);
-}
-function qs(s){
-  var q=(document.getElementById('q-'+s)||{}).value||'';
-  q=q.trim().toLowerCase();
-  document.querySelectorAll('#p-'+s+' .card').forEach(c=>c.classList.toggle('hide',q&&!c.textContent.toLowerCase().includes(q)));
-  document.querySelectorAll('#p-'+s+' .tr').forEach(r=>r.classList.toggle('hide',q&&!r.textContent.toLowerCase().includes(q)));
-  var n=document.querySelectorAll('#p-'+s+' .card:not(.hide)').length
-       +document.querySelectorAll('#p-'+s+' .tr:not(.hide)').length;
-  var rc=document.getElementById('rc-'+s);
-  if(rc)rc.textContent=q?'搜尋結果：'+n+' 筆':'';
-}
-var LOCS=[{n:"臺北市中正老人服務暨日間照顧中心",a:"中正區貴陽街一段60號",cat:"正式",type:"政府社福",col:"#2D7A72"},{n:"中正區健康服務中心",a:"中正區牯嶺街24號",cat:"正式",type:"政府社福",col:"#2D7A72"},{n:"中正社會福利中心",a:"中正區延平南路207號",cat:"正式",type:"政府社福",col:"#2D7A72"},{n:"愛活樂園社區長照機構",a:"中正區羅斯福路2段5號",cat:"正式",type:"日照中心",col:"#1a6b3a"},{n:"私立雲朵社區長照機構",a:"中正區杭州南路1段63號",cat:"正式",type:"日照中心",col:"#1a6b3a"},{n:"三軍總醫院社區式長照服務機構",a:"中正區汀州路3段40號",cat:"正式",type:"日照中心",col:"#1a6b3a"},{n:"開南社區式長照機構",a:"中正區濟南路1段6號",cat:"正式",type:"日照中心",col:"#1a6b3a"},{n:"中正、萬華區身心障礙者服務中心",a:"中正區延平南路207號3樓",cat:"正式",type:"身心障礙服務",col:"#8B2E1E"},{n:"臻佶祥社會服務協會（忠勤里）",a:"中正區中華路2段315巷14號",cat:"正式",type:"社區關懷據點",col:"#7a5300"},{n:"台灣旺齡協會（頂東里）",a:"中正區羅斯福路3段84巷13號",cat:"正式",type:"社區關懷據點",col:"#7a5300"},{n:"臺北市永昌長青會",a:"中正區寧波西街181巷24號",cat:"正式",type:"社區關懷據點",col:"#7a5300"},{n:"耕莘文教基金會（文盛里）",a:"中正區辛亥路1段22號",cat:"正式",type:"社區關懷據點",col:"#7a5300"},{n:"伽耶山基金會（文北里）",a:"中正區濟南路2段36號",cat:"正式",type:"社區關懷據點",col:"#7a5300"},{n:"臺北聯醫（居家醫療）",a:"中正區牯嶺街24號",cat:"正式",type:"居家整合醫療",col:"#5B3D8A"},{n:"三軍總醫院汀州院區",a:"中正區汀州路三段40號",cat:"非正式",type:"醫療院所",col:"#8B1A1A"},{n:"台灣大學醫學院附設醫院",a:"中正區中山南路7號",cat:"非正式",type:"醫療院所",col:"#8B1A1A"},{n:"聯合醫院和平院區",a:"中正區中華路二段33號",cat:"非正式",type:"醫療院所",col:"#8B1A1A"},{n:"夢想工坊（育成基金會）",a:"中正區南昌路2段192號",cat:"非正式",type:"小作所",col:"#7a5300"},{n:"星兒工坊（自閉症總會）",a:"中正區寧波西街62號",cat:"非正式",type:"小作所",col:"#7a5300"},{n:"肯納和平坊",a:"中正區和平西路2段6號",cat:"非正式",type:"小作所",col:"#7a5300"},{n:"古亭工坊（喜憨兒基金會）",a:"中正區羅斯福路二段150號",cat:"非正式",type:"小作所",col:"#7a5300"},{n:"創世清寒植物人安養院",a:"中正區北平東路28號",cat:"非正式",type:"長照機構",col:"#5B3D8A"},{n:"私立仁泰老人長期照顧中心",a:"中正區連雲街3號",cat:"非正式",type:"長照機構",col:"#5B3D8A"},{n:"私立博愛老人長期照顧中心",a:"中正區汀州路3段56號",cat:"非正式",type:"長照機構",col:"#5B3D8A"}];
-var _mc='all';
-function renderMap(){
-  var list=document.getElementById('mlist');
-  list.innerHTML='';
-  LOCS.forEach(function(loc){
-    var ok=_mc==='all'||loc.cat===_mc||loc.type===_mc;
-    if(!ok)return;
-    var mp='https://maps.google.com/?q=台北市'+loc.a;
-    var d=document.createElement('div');
-    d.className='mcard';
-    d.innerHTML='<div class="mdot" style="background:'+loc.col+'"></div>'
-      +'<div class="minfo"><div class="mn">'+loc.n+'</div><div class="mt2">'+loc.type+' · '+loc.a+'</div></div>'
-      +'<a class="mbtn" href="'+mp+'" target="_blank">📍 導航</a>';
-    list.appendChild(d);
-  });
 }
 function mapFilter(cat,btn){
   _mc=cat;
   document.querySelectorAll('.mfbtn').forEach(b=>b.classList.remove('on'));
   btn.classList.add('on');
   renderMap();
+  updateMapIframe();
+}
+function updateMapIframe(){
+  var iframe=document.getElementById('map-iframe');
+  if(!iframe)return;
+  var q;
+  if(_mc==='all') q='長照 台北市中正區';
+  else if(_mc==='正式') q='日照中心 台北市中正區';
+  else if(_mc==='非正式') q='醫療 台北市中正區';
+  else q=_mc+' 台北市中正區';
+  // 使用 Google Maps search URL
+  iframe.src='https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d14460!2d121.516!3d25.027!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3442a9720b0f8b11%3A0x1a02e04c5069af2a!2z5Y-w5YyX5biC5Lit5q2j5D!5e0!3m2!1szh-TW!2stw&q='+encodeURIComponent(q);
 }
 window.addEventListener('load',function(){
   renderMap();
+  updateMapIframe();
 });
 </script>
 </body>
