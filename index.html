@@ -96,7 +96,10 @@ footer{background:var(--dk);color:rgba(255,255,255,.8);padding:1rem;text-align:c
 .fb{font-size:.82rem;font-weight:700;color:#fff;line-height:1.3;text-align:left}.fb span{display:block;font-size:.63rem;font-weight:400;opacity:.72}
 .flk{display:flex;flex-wrap:wrap;justify-content:center;gap:.3rem .85rem;margin:.55rem 0;font-size:.7rem}
 .flk a{color:rgba(255,255,255,.75);text-decoration:none}
-.fc{font-size:.62rem;opacity:.5;margin-top:.45rem}</style>
+.fc{font-size:.62rem;opacity:.5;margin-top:.45rem}
+.visit-badge{display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.15);border-radius:20px;padding:2px 8px;font-size:.65rem}
+</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 </head>
 <body>
 <div id="sync-bar"></div>
@@ -111,7 +114,7 @@ footer{background:var(--dk);color:rgba(255,255,255,.8);padding:1rem;text-align:c
   <p>中正區正式與非正式長照資源整合查詢・一鍵導航・掃 QR Code 隨時取用</p>
   <div class="hs">
     <div class="hsi"><b>283</b><small>資源總筆數</small></div>
-    <div class="hsi"><b>✅ 同步</b><small>試算表連動</small></div>
+    <div class="hsi"><b id="visit-count">—</b><small>累計瀏覽</small></div>
     <div class="hsi"><b>中正</b><small>行政區</small></div>
   </div>
 </div>
@@ -511,8 +514,8 @@ footer{background:var(--dk);color:rgba(255,255,255,.8);padding:1rem;text-align:c
 <!-- 地圖 -->
 <div class="panel" id="p-map">
   <div class="mp-inner">
-    <div class="mfbar">
-      <button class="mfbtn on" onclick="mapFilter('all',this)">全部</button>
+    <div class="mfbar" id="map-filter-bar">
+      <button class="mfbtn on" onclick="mapFilter('all',this)">全部 <span id="map-count-all"></span></button>
       <button class="mfbtn" onclick="mapFilter('正式',this)">📋 正式資源</button>
       <button class="mfbtn" onclick="mapFilter('非正式',this)">🤝 非正式資源</button>
       <button class="mfbtn" onclick="mapFilter('政府社福',this)">🏛️ 政府社福</button>
@@ -523,13 +526,13 @@ footer{background:var(--dk);color:rgba(255,255,255,.8);padding:1rem;text-align:c
       <button class="mfbtn" onclick="mapFilter('小作所',this)">🛠️ 小作所</button>
       <button class="mfbtn" onclick="mapFilter('居家整合醫療',this)">🏥 居家醫療</button>
     </div>
-    <div class="mwrap">
-      <iframe id="map-iframe" src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d14460!2d121.516!3d25.027!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3442a9720b0f8b11%3A0x1a02e04c5069af2a!2z5Y-w5YyX5biC5Lit5q2j5D!5e0!3m2!1szh-TW!2stw!4v1700000000" allowfullscreen loading="lazy"></iframe>
-    </div>
-    <p style="font-size:.72rem;color:var(--mu);margin-bottom:.6rem">📍 點選分類篩選，點「導航」直接開啟 Google Maps 路線導航</p>
-    <div class="mlist" id="mlist"></div>
+    <!-- Leaflet 互動地圖 -->
+    <div id="leaflet-map" style="height:400px;border-radius:12px;border:1px solid var(--bd);margin-bottom:.75rem;z-index:1"></div>
+    <p style="font-size:.72rem;color:var(--mu);margin-bottom:.6rem">📍 點擊地圖上的標記查看機構資訊・點「導航」開啟 Google Maps</p>
+    <!-- 地點列表 -->
+    <div id="mlist" style="display:grid;gap:6px;margin-bottom:1rem"></div>
     <a href="https://maps.google.com/maps/search/長照+台北市中正區" target="_blank"
-       style="display:block;text-align:center;background:var(--dk);color:#fff;padding:9px;border-radius:9px;font-size:.82rem;font-weight:700;text-decoration:none;margin-top:.5rem">
+       style="display:block;text-align:center;background:var(--dk);color:#fff;padding:9px;border-radius:9px;font-size:.82rem;font-weight:700;text-decoration:none">
       🗺️ 在 Google Maps 搜尋中正區長照資源
     </a>
   </div>
@@ -599,6 +602,7 @@ function mp(n,btn){
   btn.classList.add('on');
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('on'));
   document.getElementById('p-'+n).classList.add('on');
+  if(n==='map'){ setTimeout(function(){ initMap(); }, 50); }
 }
 
 /* ── 子分類切換（核心修正）────────────────────────────
@@ -662,4 +666,294 @@ window.addEventListener('load',function(){
   renderMap();
   syncFromSheet();
 });</script>
-</body></html>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// ── 資料 ──────────────────────────────────────────────
+var LOCS = [{"n": "臺北市社區心理衛生中心（中正區）", "a": "中正區金山南路1段5號", "t": "02-3393-6588", "cat": "正式", "type": "政府社福", "col": "#2D7A72", "lat": 25.0358, "lng": 121.5267}, {"n": "中正區健康服務中心", "a": "中正區牯嶺街24號", "t": "02-2321-5158", "cat": "正式", "type": "政府社福", "col": "#2D7A72", "lat": 25.027, "lng": 121.5155}, {"n": "臺北市中正老人服務暨日間照顧中心", "a": "中正區貴陽街一段60號", "t": "02-2381-4571", "cat": "正式", "type": "政府社福", "col": "#2D7A72", "lat": 25.0432, "lng": 121.5087}, {"n": "中正、萬華區身心障礙者資源中心", "a": "中正區延平南路207號", "t": "02-2306-9661", "cat": "正式", "type": "政府社福", "col": "#2D7A72", "lat": 25.0418, "lng": 121.5041}, {"n": "中正社會福利中心", "a": "中正區延平南路207號6樓", "t": "02-2396-2340", "cat": "正式", "type": "政府社福", "col": "#2D7A72", "lat": 25.0418, "lng": 121.5041}, {"n": "愛活樂園社區長照機構", "a": "中正區羅斯福路2段5號", "t": "02-2351-0005", "cat": "正式", "type": "日照中心", "col": "#1a6b3a", "lat": 25.0293, "lng": 121.5282}, {"n": "私立雲朵社區長照機構", "a": "中正區杭州南路1段63號", "t": "02-2391-1898", "cat": "正式", "type": "日照中心", "col": "#1a6b3a", "lat": 25.0388, "lng": 121.5268}, {"n": "三軍總醫院社區式長照服務機構", "a": "中正區汀州路3段40號", "t": "02-2365-9055", "cat": "正式", "type": "日照中心", "col": "#1a6b3a", "lat": 25.0128, "lng": 121.5255}, {"n": "開南高中附設開南社區式長照機構", "a": "中正區濟南路1段6號", "t": "02-2393-9406", "cat": "正式", "type": "日照中心", "col": "#1a6b3a", "lat": 25.0453, "lng": 121.5233}, {"n": "臻佶祥社會服務協會（忠勤里）", "a": "中正區中華路2段315巷14號", "t": "02-2303-6281", "cat": "正式", "type": "社區關懷據點", "col": "#7a5300", "lat": 25.0241, "lng": 121.4995}, {"n": "台灣旺齡協會（頂東里）", "a": "中正區羅斯福路3段84巷13號", "t": "02-2368-0690", "cat": "正式", "type": "社區關懷據點", "col": "#7a5300", "lat": 25.0178, "lng": 121.5292}, {"n": "臺北市永昌長青會", "a": "中正區寧波西街181巷24號", "t": "02-2307-1068", "cat": "正式", "type": "社區關懷據點", "col": "#7a5300", "lat": 25.0235, "lng": 121.5012}, {"n": "耕莘文教基金會（文盛里）", "a": "中正區辛亥路1段22號", "t": "02-2365-5615", "cat": "正式", "type": "社區關懷據點", "col": "#7a5300", "lat": 25.0155, "lng": 121.5348}, {"n": "伽耶山基金會（文北里）", "a": "中正區濟南路2段36號", "t": "02-2394-6800", "cat": "正式", "type": "社區關懷據點", "col": "#7a5300", "lat": 25.0468, "lng": 121.5298}, {"n": "臺大醫院居家醫療團隊", "a": "中正區中山南路7號", "t": "02-2312-3456", "cat": "正式", "type": "居家整合醫療", "col": "#5B3D8A", "lat": 25.0408, "lng": 121.5198}, {"n": "臺北藍鵲居家醫療照護團隊（中正門診部）", "a": "中正區牯嶺街24號", "t": "02-2321-0168", "cat": "正式", "type": "居家整合醫療", "col": "#5B3D8A", "lat": 25.027, "lng": 121.5155}, {"n": "臺北市立聯合醫院中正", "a": "中正區牯嶺街24號", "t": "02-2321-0168", "cat": "非正式", "type": "醫療院所", "col": "#8B1A1A", "lat": 25.027, "lng": 121.5155}, {"n": "臺北市立聯合醫院和平院區", "a": "中正區中華路二段33號", "t": "02-2388-9595", "cat": "非正式", "type": "醫療院所", "col": "#8B1A1A", "lat": 25.0312, "lng": 121.5005}, {"n": "三軍總醫院汀州院區", "a": "中正區汀州路三段40號", "t": "02-2365-9055", "cat": "非正式", "type": "醫療院所", "col": "#8B1A1A", "lat": 25.0128, "lng": 121.5255}, {"n": "國立臺灣大學醫學院附設醫院", "a": "中正區中山南路7號", "t": "02-2312-3456", "cat": "非正式", "type": "醫療院所", "col": "#8B1A1A", "lat": 25.0408, "lng": 121.5198}, {"n": "創世清寒植物人安養院", "a": "中正區北平東路28號", "t": "02-2397-0101", "cat": "非正式", "type": "長照機構", "col": "#5B3D8A", "lat": 25.0448, "lng": 121.5218}, {"n": "私立仁泰老人長期照顧中心", "a": "中正區連雲街3號", "t": "02-3393-1662", "cat": "非正式", "type": "長照機構", "col": "#5B3D8A", "lat": 25.0378, "lng": 121.5272}, {"n": "私立博愛老人長期照顧中心", "a": "中正區汀州路3段56號", "t": "02-2367-1050", "cat": "非正式", "type": "長照機構", "col": "#5B3D8A", "lat": 25.0135, "lng": 121.5248}, {"n": "夢想工坊（育成基金會）", "a": "中正區南昌路2段192號", "t": "02-2365-5312", "cat": "非正式", "type": "小作所", "col": "#7a5300", "lat": 25.0188, "lng": 121.5352}, {"n": "星兒工坊（自閉症總會）", "a": "中正區寧波西街62號", "t": "02-2394-4258", "cat": "非正式", "type": "小作所", "col": "#7a5300", "lat": 25.0238, "lng": 121.5035}, {"n": "肯納和平坊", "a": "中正區和平西路2段6號", "t": "02-7728-8659", "cat": "非正式", "type": "小作所", "col": "#7a5300", "lat": 25.0262, "lng": 121.4988}, {"n": "古亭工坊（喜憨兒基金會）", "a": "中正區羅斯福路二段150號", "t": "02-2362-0218", "cat": "非正式", "type": "小作所", "col": "#7a5300", "lat": 25.0222, "lng": 121.5288}, {"n": "青少年心理諮商門診（心理衛生中心）", "a": "中正區金山南路一段5號", "t": "02-3393-6779", "cat": "非正式", "type": "心理諮商", "col": "#2D7A72", "lat": 25.0358, "lng": 121.5267}, {"n": "中正老人服務中心（預防走失手鏈）", "a": "中正區貴陽街1段60號", "t": "02-2381-4571", "cat": "非正式", "type": "預防走失", "col": "#1A4E8C", "lat": 25.0432, "lng": 121.5087}];
+
+var _mc  = 'all';
+var _map = null;
+var _markers = [];
+var _userMarker = null;
+var _userCircle  = null;
+
+// 分類顏色
+var CAT_COLOR = {
+  '政府社福'   : '#2D7A72',
+  '日照中心'   : '#1a6b3a',
+  '社區關懷據點': '#7a5300',
+  '居家整合醫療': '#5B3D8A',
+  '身心障礙服務': '#8B2E1E',
+  '醫療院所'   : '#8B1A1A',
+  '長照機構'   : '#5B3D8A',
+  '小作所'     : '#e07b00',
+  '心理諮商'   : '#2D7A72',
+  '預防走失'   : '#1A4E8C'
+};
+
+// SVG 定位針
+function makePin(col) {
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 40" width="28" height="40">'
+    + '<filter id="sh"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity=".35"/></filter>'
+    + '<path filter="url(#sh)" d="M14 2C9 2 5 6 5 11c0 7.5 9 20 9 20s9-12.5 9-20c0-5-4-9-9-9z" fill="'
+    + col + '" stroke="#fff" stroke-width="1.5"/>'
+    + '<circle cx="14" cy="11" r="4" fill="#fff" opacity=".9"/>'
+    + '</svg>';
+  return L.divIcon({ html: svg, className: '', iconSize: [28,40], iconAnchor: [14,40], popupAnchor: [0,-42] });
+}
+
+// 使用者定位針（藍色脈衝）
+var userIcon = L.divIcon({
+  html: '<div style="width:18px;height:18px;background:#1a7fe8;border:3px solid #fff;border-radius:50%;box-shadow:0 0 0 4px rgba(26,127,232,.25),0 2px 6px rgba(0,0,0,.3)"></div>',
+  className: '',
+  iconSize: [18,18],
+  iconAnchor: [9,9],
+  popupAnchor: [0,-12]
+});
+
+// ── 地圖初始化 ────────────────────────────────────────
+function initMap() {
+  if (_map) { renderMapMarkers(); return; }
+  _map = L.map('leaflet-map', { zoomControl: true }).setView([25.027, 121.516], 14);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19
+  }).addTo(_map);
+
+  // 定位按鈕（自訂）
+  var locBtn = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd: function() {
+      var btn = L.DomUtil.create('button', '');
+      btn.title = '我的位置';
+      btn.style.cssText = 'width:34px;height:34px;background:#fff;border:2px solid rgba(0,0,0,.25);border-radius:4px;cursor:pointer;font-size:16px;line-height:1;box-shadow:0 1px 4px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;margin-top:4px';
+      btn.innerHTML = '📍';
+      L.DomEvent.on(btn, 'click', function(e) {
+        L.DomEvent.stopPropagation(e);
+        locateUser();
+      });
+      return btn;
+    }
+  });
+  _map.addControl(new locBtn());
+
+  renderMapMarkers();
+}
+
+// ── 渲染標記 ─────────────────────────────────────────
+function renderMapMarkers() {
+  // 清除舊標記
+  _markers.forEach(function(m) { _map.removeLayer(m); });
+  _markers = [];
+
+  var list = document.getElementById('mlist');
+  list.innerHTML = '';
+  var bounds = [];
+
+  LOCS.forEach(function(loc) {
+    var ok = _mc === 'all' || loc.cat === _mc || loc.type === _mc;
+    if (!ok) return;
+
+    var col    = CAT_COLOR[loc.type] || '#2D7A72';
+    var gmUrl  = 'https://maps.google.com/?q=' + encodeURIComponent('台北市' + loc.a);
+    var telRaw = loc.t.replace(/[^0-9]/g, '');
+
+    // Popup 內容
+    var popup = L.popup({ maxWidth: 240 }).setContent(
+      '<div style="font-family:\'Noto Sans TC\',sans-serif">'
+      + '<div style="font-weight:700;font-size:.88rem;color:#1A1A1A;margin-bottom:5px;line-height:1.35">' + loc.n + '</div>'
+      + '<div style="display:inline-block;background:' + col + '22;color:' + col + ';font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:10px;margin-bottom:6px">' + loc.type + '</div>'
+      + '<div style="font-size:.73rem;color:#666;margin-bottom:2px">📍 ' + loc.a + '</div>'
+      + '<div style="font-size:.73rem;color:#666;margin-bottom:8px">📞 ' + loc.t + '</div>'
+      + '<div style="display:flex;gap:6px">'
+      + '<a href="' + gmUrl + '" target="_blank" style="flex:1;text-align:center;background:' + col + ';color:#fff;padding:5px 0;border-radius:7px;font-size:.72rem;text-decoration:none;font-weight:700">📍 Google Maps</a>'
+      + '<a href="tel:' + telRaw + '" style="flex:1;text-align:center;background:#f0f0f0;color:#333;padding:5px 0;border-radius:7px;font-size:.72rem;text-decoration:none;font-weight:700">📞 撥打</a>'
+      + '</div></div>'
+    );
+
+    var marker = L.marker([loc.lat, loc.lng], { icon: makePin(col) })
+      .bindPopup(popup)
+      .addTo(_map);
+    _markers.push(marker);
+    bounds.push([loc.lat, loc.lng]);
+
+    // 列表卡片（點擊跳到地圖標記）
+    var card = document.createElement('div');
+    card.style.cssText = 'background:#fff;border:1px solid #E4DFD8;border-radius:10px;padding:.6rem .85rem;display:flex;align-items:center;gap:8px;cursor:pointer;transition:box-shadow .15s';
+    card.onmouseenter = function() { this.style.boxShadow = '0 2px 8px rgba(0,0,0,.1)'; };
+    card.onmouseleave = function() { this.style.boxShadow = 'none'; };
+    card.onclick = (function(loc, marker) {
+      return function() {
+        _map.flyTo([loc.lat, loc.lng], 17, { animate: true, duration: 0.8 });
+        setTimeout(function() { marker.openPopup(); }, 900);
+      };
+    })(loc, marker);
+    card.innerHTML = '<div style="width:10px;height:10px;border-radius:50%;background:' + col + ';flex-shrink:0"></div>'
+      + '<div style="flex:1;min-width:0">'
+      + '<div style="font-size:.82rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + loc.n + '</div>'
+      + '<div style="font-size:.68rem;color:#777">' + loc.type + ' · ' + loc.a + '</div>'
+      + '</div>'
+      + '<a href="' + gmUrl + '" target="_blank" onclick="event.stopPropagation()" '
+      + 'style="padding:3px 9px;border-radius:6px;font-size:10.5px;font-weight:700;text-decoration:none;color:' + col + ';border:1.5px solid ' + col + ';background:#fff;white-space:nowrap;flex-shrink:0">📍 導航</a>';
+    list.appendChild(card);
+  });
+
+  // 自動縮放到篩選後的標記
+  if (bounds.length > 1) {
+    _map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+  } else if (bounds.length === 1) {
+    _map.setView(bounds[0], 16);
+  }
+}
+
+// ── 分類篩選 ─────────────────────────────────────────
+function mapFilter(cat, btn) {
+  _mc = cat;
+  document.querySelectorAll('.mfbtn').forEach(function(b) { b.classList.remove('on'); });
+  btn.classList.add('on');
+  if (_map) renderMapMarkers();
+}
+
+// ── 使用者定位 ───────────────────────────────────────
+function locateUser() {
+  if (!navigator.geolocation) {
+    alert('您的瀏覽器不支援定位功能');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    function(pos) {
+      var lat = pos.coords.latitude;
+      var lng = pos.coords.longitude;
+      var acc = pos.coords.accuracy;
+
+      // 移除舊定位
+      if (_userMarker) { _map.removeLayer(_userMarker); _userMarker = null; }
+      if (_userCircle)  { _map.removeLayer(_userCircle);  _userCircle  = null; }
+
+      // 精度圓圈
+      _userCircle = L.circle([lat, lng], {
+        radius: Math.min(acc, 300),
+        color: '#1a7fe8',
+        fillColor: '#1a7fe8',
+        fillOpacity: 0.1,
+        weight: 1.5
+      }).addTo(_map);
+
+      // 使用者標記
+      _userMarker = L.marker([lat, lng], { icon: userIcon, zIndexOffset: 1000 })
+        .bindPopup('<div style="font-family:\'Noto Sans TC\',sans-serif;font-size:.8rem;font-weight:700;color:#1a7fe8">📍 你在這裡</div>')
+        .addTo(_map)
+        .openPopup();
+
+      // 移動地圖到使用者位置
+      _map.flyTo([lat, lng], 16, { animate: true, duration: 1 });
+    },
+    function(err) {
+      var msg = { 1: '請允許位置權限', 2: '無法取得位置', 3: '定位逾時' };
+      alert('定位失敗：' + (msg[err.code] || '未知錯誤'));
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+  );
+}
+
+// ── 主分頁切換 ───────────────────────────────────────
+function mp(n, btn) {
+  document.querySelectorAll('.mt button').forEach(function(b) { b.classList.remove('on'); });
+  btn.classList.add('on');
+  document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('on'); });
+  document.getElementById('p-' + n).classList.add('on');
+  if (n === 'map') {
+    setTimeout(function() {
+      initMap();
+      // 地圖尺寸修正（有時切換分頁後需要重新計算）
+      if (_map) _map.invalidateSize();
+    }, 80);
+  }
+}
+
+// ── 子分類切換 ───────────────────────────────────────
+function show(id, btn) {
+  var s = id[0] === 'f' ? 'f' : 'i';
+  document.querySelectorAll('#sub-' + s + ' .st').forEach(function(b) { b.classList.remove('on'); });
+  btn.classList.add('on');
+  var aw = document.getElementById(s + '_all_wrap');
+  document.querySelectorAll('#p-' + s + ' .sec').forEach(function(x) {
+    if (id === s + '_all') {
+      x.classList.remove('hidden');
+    } else {
+      if (x.dataset.cat === id) x.classList.remove('hidden');
+      else x.classList.add('hidden');
+    }
+  });
+  if (id === s + '_all') { if(aw) aw.style.display = 'block'; }
+  qs(s);
+}
+
+// ── 搜尋 ─────────────────────────────────────────────
+function qs(s) {
+  var q = (document.getElementById('q-' + s) || {}).value || '';
+  q = q.trim().toLowerCase();
+  document.querySelectorAll('#p-' + s + ' .card').forEach(function(c) {
+    c.classList.toggle('hide', q && !c.textContent.toLowerCase().includes(q));
+  });
+  document.querySelectorAll('#p-' + s + ' .tr').forEach(function(r) {
+    r.classList.toggle('hide', q && !r.textContent.toLowerCase().includes(q));
+  });
+  var n = document.querySelectorAll('#p-' + s + ' .card:not(.hide)').length
+        + document.querySelectorAll('#p-' + s + ' .tr:not(.hide)').length;
+  var rc = document.getElementById('rc-' + s);
+  if (rc) rc.textContent = q ? '搜尋結果：' + n + ' 筆' : '';
+}
+
+// ── 試算表同步 ───────────────────────────────────────
+var API_URL = 'https://script.google.com/macros/s/AKfycbxbrUIXmXrgX-kLRKcIeyDrHA-0wjjy3Nk-muGKXLsjFoMSrNN70KbzcJITcLgdvgCsyA/exec';
+function syncFromSheet() {
+  var bar = document.getElementById('sync-bar');
+  bar.className = 'on';
+  bar.innerHTML = '🔄 正在連線試算表…';
+  fetch(API_URL).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.success) {
+      bar.innerHTML = '✅ 試算表連線正常 · 更新時間：' + new Date(d.updated).toLocaleString('zh-TW');
+    } else {
+      bar.className = 'on err';
+      bar.innerHTML = '⚠️ 試算表回應異常';
+    }
+  }).catch(function() {
+    bar.className = 'on err';
+    bar.innerHTML = '⚠️ 無法連線試算表 API（顯示本機資料）';
+  });
+}
+
+// ── 瀏覽次數 ─────────────────────────────────────────
+function loadVisitCount() {
+  // 使用 countapi.mileshilliard.com（countapi.xyz 的替代品，免費且穩定）
+  fetch('https://countapi.mileshilliard.com/api/v1/hit/kaifengcarezhongzheng-ltc')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById('visit-count');
+      if (el && d.value) el.textContent = Number(d.value).toLocaleString();
+    })
+    .catch(function() {
+      // API 無法連線時，改用 localStorage 記錄本機次數
+      var el = document.getElementById('visit-count');
+      if (!el) return;
+      try {
+        var count = parseInt(localStorage.getItem('kf_visits') || '0') + 1;
+        localStorage.setItem('kf_visits', count);
+        el.textContent = count.toLocaleString() + '*';
+      } catch(e) {
+        el.textContent = '—';
+      }
+    });
+}
+
+// ── 頁面載入 ─────────────────────────────────────────
+window.addEventListener('load', function() {
+  syncFromSheet();
+  loadVisitCount();
+});
+</script>
+
+</body>
